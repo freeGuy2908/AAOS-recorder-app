@@ -1,0 +1,4 @@
+/build
+
+# Third-party native libs
+/app/src/main/cpp/speexdsp/

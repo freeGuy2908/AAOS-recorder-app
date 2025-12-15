@@ -1,0 +1,4 @@
+<resources>
+
+    <style name="Theme.RecorderApp" parent="android:Theme.Material.Light.DarkActionBar" />
+</resources>
