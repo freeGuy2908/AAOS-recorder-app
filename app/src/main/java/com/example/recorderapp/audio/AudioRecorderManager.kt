@@ -14,6 +14,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.Date
 
 class AudioRecorderManager(private val context: Context) {
     private val audioEngine = AudioEngine()
@@ -22,17 +25,21 @@ class AudioRecorderManager(private val context: Context) {
     private var recordingJob: Job? = null
 
     // Cấu hình âm thanh - BẮT BUỘC KHỚP VỚI C++
-    private val SAMPLE_RATE = 16000
+    private val SAMPLE_RATE = 48000
     private val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
     private val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
 
     // Speex frame size: 20ms tương ứng với 320 mẫu (samples) tại 16kHz
     // Công thức: (16000 / 1000) * 20 = 320
-    private val FRAME_SIZE_SAMPLES = 320
+    private val FRAME_SIZE_SAMPLES = 960
 
     @SuppressLint("MissingPermission")  // Đã xử lý quyền ở UI layer
-    fun startRecording(onStateChanged: (Boolean) -> Unit) {
-        if (isRecording) return
+    fun startRecording(onStateChanged: (Boolean) -> Unit): File? {
+        if (isRecording) return null
+
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "REC_$timeStamp.pcm"
+        val currentFile = File(context.getExternalFilesDir(null), fileName)
 
         // 1. Tính toán buffer tối thiểu mà Android yêu cầu
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
@@ -52,7 +59,7 @@ class AudioRecorderManager(private val context: Context) {
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e("AudioRecorder", "Không thể khởi tạo AudioRecord")
-                return
+                return null
             }
             audioRecord?.startRecording()
             isRecording = true
@@ -60,12 +67,14 @@ class AudioRecorderManager(private val context: Context) {
 
             // 3. Chạy vòng lặp thu âm trên background thread (IO)
             recordingJob = CoroutineScope(Dispatchers.IO).launch {
-                writeAudioDataToFile()
+                writeAudioDataToFile(currentFile)
             }
         } catch (e: Exception) {
             Log.e("AudioRecorder", "Lỗi start: ${e.message}")
             stopRecording { onStateChanged(false) }
         }
+
+        return currentFile
     }
 
     fun stopRecording(onStateChanged: (Boolean) -> Unit) {
@@ -86,9 +95,9 @@ class AudioRecorderManager(private val context: Context) {
         }
     }
 
-    private suspend fun writeAudioDataToFile() {
+    private suspend fun writeAudioDataToFile(file: File) {
         // Tạo file đầu ra trong thư mục riêng của app
-        val file = File(context.getExternalFilesDir(null), "recording_filtered.pcm")
+        // val file = File(context.getExternalFilesDir(null), "recording_filtered.pcm")
         val outputStream = FileOutputStream(file)
 
         // Buffer chứa dữ liệu 1 frame (ShortArray vì là PCM 16bit)
@@ -99,7 +108,7 @@ class AudioRecorderManager(private val context: Context) {
                 // a. Đọc dữ liệu thô từ Mic
                 // read() sẽ block cho đến khi đọc đủ 320 mẫu
                 val readResult = audioRecord?.read(shortBuffer,0,FRAME_SIZE_SAMPLES) ?: 0
-                if (readResult > 0) {
+                if (readResult > 0 && isRecording) {
                     // b. GỌI XUỐNG C++ ĐỂ LỌC NHIỄU
                     // Dữ liệu trong shortBuffer sẽ bị thay đổi trực tiếp (sạch hơn)
                     audioEngine.filterNoise(shortBuffer, FRAME_SIZE_SAMPLES)
@@ -117,7 +126,10 @@ class AudioRecorderManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e("AudioRecorder", "Lỗi ghi file: ${e.message}")
         } finally {
-            outputStream.close()
+            try {
+                outputStream.flush()
+                outputStream.close()
+            } catch (e: Exception) { e.printStackTrace() }
         }
     }
 }

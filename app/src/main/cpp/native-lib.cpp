@@ -9,8 +9,8 @@
 
 // Biến toàn cục lưu trạng thái bộ lọc
 static SpeexPreprocessState *st = nullptr;
-static int current_sample_rate = 0;
-static int current_frame_size = 0;
+//static int current_sample_rate = 0;
+//static int current_frame_size = 0;
 
 extern "C"
 JNIEXPORT jboolean JNICALL
@@ -31,7 +31,7 @@ Java_com_example_recorderapp_audio_AudioEngine_filterNoise(
     if (st == nullptr) {
         // Cấu hình mẫu: Sample rate 16000Hz (chuẩn cho giọng nói)
         // cần đảm bảo AudioRecord bên Kotlin cũng set là 16000Hz
-        int sampleRate = 16000;
+        int sampleRate = 48000;
         st = speex_preprocess_state_init(size, sampleRate);
 
         // Bật tính năng khử nhiễu (Denoise)
@@ -40,7 +40,7 @@ Java_com_example_recorderapp_audio_AudioEngine_filterNoise(
 
         // Tùy chỉnh mức độ giảm nhiễu (Noise Suppression) - Đơn vị dB âm
         // -15dB đến -30dB là mức phổ biến
-        int noiseSuppress = -25;
+        int noiseSuppress = -20;
         speex_preprocess_ctl(st, SPEEX_PREPROCESS_SET_NOISE_SUPPRESS, &noiseSuppress);
 
         // Bật tính năng tự động điều chỉnh gain (AGC) - Giúp âm thanh to đều
