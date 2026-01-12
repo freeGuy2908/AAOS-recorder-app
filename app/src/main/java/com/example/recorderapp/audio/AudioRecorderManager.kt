@@ -24,16 +24,16 @@ class AudioRecorderManager(private val context: Context) {
     private var isRecording = false
     private var recordingJob: Job? = null
 
-    // Cấu hình âm thanh - BẮT BUỘC KHỚP VỚI C++
+    // Cấu hình âm thanh
     private val SAMPLE_RATE = 48000
     private val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
     private val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
 
     // Speex frame size: 20ms tương ứng với 320 mẫu (samples) tại 16kHz
-    // Công thức: (16000 / 1000) * 20 = 320
+    // Công thức: (48000 / 1000) * 20 = 960
     private val FRAME_SIZE_SAMPLES = 960
 
-    @SuppressLint("MissingPermission")  // Đã xử lý quyền ở UI layer
+    @SuppressLint("MissingPermission")
     fun startRecording(onStateChanged: (Boolean) -> Unit): File? {
         if (isRecording) return null
 
@@ -41,14 +41,13 @@ class AudioRecorderManager(private val context: Context) {
         val fileName = "REC_$timeStamp.pcm"
         val currentFile = File(context.getExternalFilesDir(null), fileName)
 
-        // 1. Tính toán buffer tối thiểu mà Android yêu cầu
+        // buffer tối thiểu Android cần
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
 
         // Đảm bảo buffer của AudioRecord đủ lớn (lớn hơn frame size của Speex)
         val bufferSize = maxOf(minBufferSize, FRAME_SIZE_SAMPLES * 2)
 
         try {
-            // 2. Khởi tạo AudioRecord
             audioRecord = AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE,
@@ -65,7 +64,7 @@ class AudioRecorderManager(private val context: Context) {
             isRecording = true
             onStateChanged(true)
 
-            // 3. Chạy vòng lặp thu âm trên background thread (IO)
+            // Chạy vòng lặp thu âm trên background thread (IO)
             recordingJob = CoroutineScope(Dispatchers.IO).launch {
                 writeAudioDataToFile(currentFile)
             }
@@ -88,38 +87,34 @@ class AudioRecorderManager(private val context: Context) {
             e.printStackTrace()
         } finally {
             audioRecord = null
-            recordingJob?.cancel()  // Hủy coroutine
-            audioEngine.destroyFilter() // Dọn dẹp bộ nhớ C++
+            recordingJob?.cancel()
+            audioEngine.destroyFilter()
             onStateChanged(false)
             Log.d("AudioRecorder", "Đã dừng ghi âm")
         }
     }
 
     private suspend fun writeAudioDataToFile(file: File) {
-        // Tạo file đầu ra trong thư mục riêng của app
         // val file = File(context.getExternalFilesDir(null), "recording_filtered.pcm")
         val outputStream = FileOutputStream(file)
 
-        // Buffer chứa dữ liệu 1 frame (ShortArray vì là PCM 16bit)
+        // ShortArray PCM 16bit
         val shortBuffer = ShortArray(FRAME_SIZE_SAMPLES)
         Log.d("AudioRecorder", "Bắt đầu ghi vào file: ${file.absolutePath}")
         try {
             while (isRecording) {
-                // a. Đọc dữ liệu thô từ Mic
-                // read() sẽ block cho đến khi đọc đủ 320 mẫu
+                // Đọc dữ liệu thô từ Mic
+                // read() sẽ block cho đến khi đọc đủ mẫu
                 val readResult = audioRecord?.read(shortBuffer,0,FRAME_SIZE_SAMPLES) ?: 0
                 if (readResult > 0 && isRecording) {
-                    // b. GỌI XUỐNG C++ ĐỂ LỌC NHIỄU
-                    // Dữ liệu trong shortBuffer sẽ bị thay đổi trực tiếp (sạch hơn)
+                    // gọi xuống native lib lọc nhiễu
                     audioEngine.filterNoise(shortBuffer, FRAME_SIZE_SAMPLES)
 
-                    // c. Chuyển đổi ShortArray sang ByteArray để ghi file
                     // PCM 16bit = 2 byte mỗi mẫu. Little Endian là chuẩn của WAV/PCM.
                     val byteBuffer = ByteBuffer.allocate(shortBuffer.size * 2)
                     byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
                     byteBuffer.asShortBuffer().put(shortBuffer)
 
-                    // d. Ghi xuống file
                     outputStream.write(byteBuffer.array())
                 }
             }

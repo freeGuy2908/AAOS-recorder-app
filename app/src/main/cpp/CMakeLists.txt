@@ -13,19 +13,18 @@ add_definitions(-DFIXED_POINT -DUSE_KISS_FFT -DEXPORT=)
 include_directories(speexdsp/include)
 
 # 3. Gom tất cả các file .c trong thư mục libspeexdsp
-# Lưu ý: Trong dự án lớn thực tế người ta sẽ liệt kê từng file, nhưng dùng GLOB cho tiện và gọn code ở đây.
 file(GLOB SPEEX_SOURCES
         "speexdsp/libspeexdsp/*.c"
 )
 list(FILTER SPEEX_SOURCES EXCLUDE REGEX "test.*\\.c$")
 
-# --- CẤU HÌNH THƯ VIỆN CỦA BẠN ---
+# --- CẤU HÌNH THƯ VIỆN ---
 
 add_library(
         native-lib
         SHARED
         native-lib.cpp
-        ${SPEEX_SOURCES} # Thêm mã nguồn Speex vào đây để compile cùng
+        ${SPEEX_SOURCES}
 )
 
 find_library(log-lib log)

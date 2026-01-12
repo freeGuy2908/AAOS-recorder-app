@@ -1,7 +1,6 @@
 package com.example.recorderapp.audio
 
 class AudioEngine {
-    // Load thư viện native khi class được khởi tạo
     companion object {
         init {
             System.loadLibrary("native-lib")
