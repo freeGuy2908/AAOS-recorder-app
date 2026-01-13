@@ -7,11 +7,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import java.io.File
+import com.example.recorderapp.data.AudioFileModel
 
 @Composable
 fun DeleteConfirmationDialog(
-    file: File,
+    item: AudioFileModel,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -19,7 +19,7 @@ fun DeleteConfirmationDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = "Xóa bản ghi âm?", color = Color.White) },
         text = {
-            Text(text = "Bạn có chắc chắn muốn xóa file '${file.name}' không?", color = Color.LightGray)
+            Text(text = "Bạn có chắc chắn muốn xóa file '${item.name}' không?", color = Color.LightGray)
         },
         containerColor = Color(0xFF2D2D2D),
         confirmButton = {

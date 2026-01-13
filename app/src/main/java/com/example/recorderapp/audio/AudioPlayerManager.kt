@@ -1,25 +1,27 @@
 package com.example.recorderapp.audio
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.net.Uri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileInputStream
 
-class AudioPlayerManager {
+class AudioPlayerManager(private val context: Context) {
     private val SAMPLE_RATE = 48000
     private val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_MONO
     private val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     private val BUFFER_SIZE = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG,AUDIO_FORMAT)
 
-    suspend fun playPcmFile(file: File, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!file.exists()) return@withContext
+    suspend fun playPcmFile(uri: Uri, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext
 
-        val fileSize = file.length()
+        val fileSize = context.contentResolver.openFileDescriptor(uri, "r")?.use {
+            it.statSize
+        } ?: 0L
         var totalBytesRead: Long = 0
 
         val audioTrack = AudioTrack.Builder()
@@ -42,7 +44,7 @@ class AudioPlayerManager {
 
         audioTrack.play()
 
-        val inputStream = FileInputStream(file)
+        //val inputStream = FileInputStream(file)
         val buffer = ByteArray(BUFFER_SIZE)
         var bytesRead: Int
 

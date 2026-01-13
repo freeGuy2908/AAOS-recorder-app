@@ -1,17 +1,18 @@
 package com.example.recorderapp.audio
 
 import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.net.Uri
+import android.provider.MediaStore
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import java.io.File
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.text.SimpleDateFormat
@@ -33,17 +34,31 @@ class AudioRecorderManager(private val context: Context) {
     // Công thức: (48000 / 1000) * 20 = 960
     private val FRAME_SIZE_SAMPLES = 960
 
+    private var currentFileUri: Uri? = null
+
     @SuppressLint("MissingPermission")
-    fun startRecording(onStateChanged: (Boolean) -> Unit): File? {
+    fun startRecording(onStateChanged: (Boolean) -> Unit): Uri? {
         if (isRecording) return null
 
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "REC_$timeStamp.pcm"
-        val currentFile = File(context.getExternalFilesDir(null), fileName)
+        val values = ContentValues().apply {
+            put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+            put(MediaStore.Audio.Media.RELATIVE_PATH, "Recordings/")
+            put(MediaStore.Audio.Media.IS_PENDING, 1)
+        }
+        // Insert vào hệ thống để lấy Uri
+        val contentResolver = context.contentResolver
+        val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,values)
+        if (uri == null) {
+            Log.e("AudioRecorder", "Không thể tạo file trong MediaStore")
+            return null
+        }
+        currentFileUri = uri
 
         // buffer tối thiểu Android cần
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-
         // Đảm bảo buffer của AudioRecord đủ lớn (lớn hơn frame size của Speex)
         val bufferSize = maxOf(minBufferSize, FRAME_SIZE_SAMPLES * 2)
 
@@ -66,20 +81,21 @@ class AudioRecorderManager(private val context: Context) {
 
             // Chạy vòng lặp thu âm trên background thread (IO)
             recordingJob = CoroutineScope(Dispatchers.IO).launch {
-                writeAudioDataToFile(currentFile)
+                writeAudioDataToFile(uri)
             }
         } catch (e: Exception) {
             Log.e("AudioRecorder", "Lỗi start: ${e.message}")
             stopRecording { onStateChanged(false) }
         }
 
-        return currentFile
+        return uri
     }
 
-    fun stopRecording(onStateChanged: (Boolean) -> Unit) {
+    fun stopRecording(onCompleted: (Uri?) -> Unit) {
         if (!isRecording) return
 
         isRecording = false
+        val finishedUri = currentFileUri
         try {
             audioRecord?.stop()
             audioRecord?.release()
@@ -87,34 +103,49 @@ class AudioRecorderManager(private val context: Context) {
             e.printStackTrace()
         } finally {
             audioRecord = null
+            recordingJob?.invokeOnCompletion {
+                audioEngine.destroyFilter()
+                onCompleted(finishedUri)
+                currentFileUri = null
+                Log.d("AudioRecorder", "Đã dừng ghi âm và đóng luồng file")
+            }
             recordingJob?.cancel()
-            audioEngine.destroyFilter()
-            onStateChanged(false)
-            Log.d("AudioRecorder", "Đã dừng ghi âm")
         }
     }
 
-    private suspend fun writeAudioDataToFile(file: File) {
-        // val file = File(context.getExternalFilesDir(null), "recording_filtered.pcm")
-        val outputStream = FileOutputStream(file)
+    private suspend fun writeAudioDataToFile(uri: Uri) {
+        val outputStream = context.contentResolver.openOutputStream(uri)
+        if (outputStream == null) return
 
         // ShortArray PCM 16bit
         val shortBuffer = ShortArray(FRAME_SIZE_SAMPLES)
-        Log.d("AudioRecorder", "Bắt đầu ghi vào file: ${file.absolutePath}")
+        Log.d("AudioRecorder", "Bắt đầu ghi vào file: ${uri.path}")
         try {
             while (isRecording) {
-                // Đọc dữ liệu thô từ Mic
-                // read() sẽ block cho đến khi đọc đủ mẫu
-                val readResult = audioRecord?.read(shortBuffer,0,FRAME_SIZE_SAMPLES) ?: 0
-                if (readResult > 0 && isRecording) {
-                    // gọi xuống native lib lọc nhiễu
-                    audioEngine.filterNoise(shortBuffer, FRAME_SIZE_SAMPLES)
+                var totalSamplesRead = 0
+                var isReadError = false
 
-                    // PCM 16bit = 2 byte mỗi mẫu. Little Endian là chuẩn của WAV/PCM.
+                while (totalSamplesRead < FRAME_SIZE_SAMPLES && isRecording) {
+                    val samplesRemain = FRAME_SIZE_SAMPLES - totalSamplesRead
+                    val result = audioRecord?.read(
+                        shortBuffer,
+                        totalSamplesRead,
+                        samplesRemain
+                    ) ?: -1
+
+                    if (result < 0) {
+                        Log.e("AudioRecorder", "Lỗi đọc âm thanh: $result")
+                        isReadError = true
+                        break
+                    }
+                    totalSamplesRead += result
+                }
+
+                if (!isReadError && totalSamplesRead == FRAME_SIZE_SAMPLES) {
+                    audioEngine.filterNoise(shortBuffer, FRAME_SIZE_SAMPLES)
                     val byteBuffer = ByteBuffer.allocate(shortBuffer.size * 2)
                     byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
                     byteBuffer.asShortBuffer().put(shortBuffer)
-
                     outputStream.write(byteBuffer.array())
                 }
             }
@@ -124,6 +155,11 @@ class AudioRecorderManager(private val context: Context) {
             try {
                 outputStream.flush()
                 outputStream.close()
+                // Đánh dấu là đã ghi xong (IS_PENDING = 0) để app khác nhìn thấy
+                val values = ContentValues().apply {
+                    put(MediaStore.Audio.Media.IS_PENDING, 0)
+                }
+                context.contentResolver.update(uri,values,null,null)
             } catch (e: Exception) { e.printStackTrace() }
         }
     }

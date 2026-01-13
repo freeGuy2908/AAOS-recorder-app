@@ -25,20 +25,21 @@ fun PlayerControls(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = "Đang phát: $fileName", color = Color.Cyan, fontSize = 14.sp)
+        Text(text = "Đang phát: $fileName", color = Color.Cyan, fontSize = 20.sp)
         Spacer(modifier = Modifier.height(8.dp))
         LinearProgressIndicator(
             progress = { progress },
             modifier = Modifier.fillMaxWidth().height(8.dp),
             color = Color(0xFF03DAC5),
             trackColor = Color.DarkGray,
+            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
         )
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = onStop,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFCF6679))
         ) {
-            Text("DỪNG PHÁT")
+            Text("DỪNG", fontSize = 20.sp)
         }
     }
 }
