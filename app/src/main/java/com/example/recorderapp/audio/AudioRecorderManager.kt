@@ -38,6 +38,17 @@ class AudioRecorderManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun startRecording(onStateChanged: (Boolean) -> Unit): Uri? {
+        if (audioRecord != null) {
+            try {
+                audioRecord?.stop()
+                audioRecord?.release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                audioRecord = null
+            }
+        }
+
         if (isRecording) return null
 
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -61,6 +72,7 @@ class AudioRecorderManager(private val context: Context) {
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         // Đảm bảo buffer của AudioRecord đủ lớn (lớn hơn frame size của Speex)
         val bufferSize = maxOf(minBufferSize, FRAME_SIZE_SAMPLES * 2)
+        //val bufferSize = (minBufferSize * 2).coerceAtLeast(FRAME_SIZE_SAMPLES * 2)
 
         try {
             audioRecord = AudioRecord(
@@ -75,6 +87,10 @@ class AudioRecorderManager(private val context: Context) {
                 Log.e("AudioRecorder", "Không thể khởi tạo AudioRecord")
                 return null
             }
+
+            // Khởi tạo Speex DSP trước khi bắt đầu ghi
+            audioEngine.initFilter(FRAME_SIZE_SAMPLES, SAMPLE_RATE)
+
             audioRecord?.startRecording()
             isRecording = true
             onStateChanged(true)
@@ -92,16 +108,25 @@ class AudioRecorderManager(private val context: Context) {
     }
 
     fun stopRecording(onCompleted: (Uri?) -> Unit) {
-        if (!isRecording) return
+        if (!isRecording) {
+            if (audioRecord != null) {
+                audioRecord?.release()
+                audioRecord = null
+            }
+            return
+        }
 
         isRecording = false
         val finishedUri = currentFileUri
         try {
             audioRecord?.stop()
-            audioRecord?.release()
+            //audioRecord?.release()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
+            try {
+                audioRecord?.release()
+            } catch (e: Exception) { }
             audioRecord = null
             recordingJob?.invokeOnCompletion {
                 audioEngine.destroyFilter()
@@ -119,6 +144,11 @@ class AudioRecorderManager(private val context: Context) {
 
         // ShortArray PCM 16bit
         val shortBuffer = ShortArray(FRAME_SIZE_SAMPLES)
+
+        // Buffer để chuyển đổi Short -> Byte (được tái sử dụng)
+        val byteBuffer = ByteBuffer.allocate(FRAME_SIZE_SAMPLES * 2)
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
+
         Log.d("AudioRecorder", "Bắt đầu ghi vào file: ${uri.path}")
         try {
             while (isRecording) {
@@ -143,8 +173,9 @@ class AudioRecorderManager(private val context: Context) {
 
                 if (!isReadError && totalSamplesRead == FRAME_SIZE_SAMPLES) {
                     audioEngine.filterNoise(shortBuffer, FRAME_SIZE_SAMPLES)
-                    val byteBuffer = ByteBuffer.allocate(shortBuffer.size * 2)
-                    byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
+                    
+                    // Reuse byteBuffer
+                    byteBuffer.clear()
                     byteBuffer.asShortBuffer().put(shortBuffer)
                     outputStream.write(byteBuffer.array())
                 }

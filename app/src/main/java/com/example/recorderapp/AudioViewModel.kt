@@ -244,6 +244,7 @@ class AudioViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        playBackJob?.cancel()
         recorderManager.stopRecording {  }
     }
 }

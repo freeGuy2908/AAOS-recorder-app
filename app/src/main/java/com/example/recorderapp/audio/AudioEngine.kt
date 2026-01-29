@@ -8,6 +8,11 @@ class AudioEngine {
     }
 
     /**
+     * Khởi tạo bộ lọc Speex với frame size và sample rate.
+     */
+    external fun initFilter(frameSize: Int, sampleRate: Int): Boolean
+
+    /**
      * Hàm native lọc nhiễu.
      * @param inputBuffer: Mảng âm thanh thô (PCM) từ Mic
      * @param size: Kích thước dữ liệu cần xử lý

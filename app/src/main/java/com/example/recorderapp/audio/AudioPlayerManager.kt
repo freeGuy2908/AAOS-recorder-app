@@ -69,7 +69,11 @@ class AudioPlayerManager(private val context: Context) {
         } finally {
             onProgress(1.0f)
             try {
+                if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    audioTrack.stop()
+                }
                 audioTrack.stop()
+                audioTrack.flush()
                 audioTrack.release()
             } catch (e: Exception) {
                 e.printStackTrace()
